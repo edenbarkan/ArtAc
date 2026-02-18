@@ -36,3 +36,8 @@ variable "state_lock_table_name" {
   type        = string
   default     = "artac-terraform-locks"
 }
+
+variable "github_repo" {
+  description = "GitHub repository (owner/repo) for automatic secret updates"
+  type        = string
+}

@@ -5,15 +5,19 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.0"
+    }
   }
 
-   backend "s3" {
-    bucket         = "artac-terraform-state-edenbarkan"
-    key            = "artac/terraform.tfstate"
-    region         = "us-east-1"
-    dynamodb_table = "artac-terraform-locks"
-    encrypt        = true
-  }
+#    backend "s3" {
+#     bucket         = "artac-terraform-state-edenbarkan"
+#     key            = "artac/terraform.tfstate"
+#     region         = "us-east-1"
+#     dynamodb_table = "artac-terraform-locks"
+#     encrypt        = true
+#   }
 }
 
 provider "aws" {
@@ -51,5 +55,15 @@ resource "aws_instance" "app_server" {
   tags = {
     Name    = "artac-app-server"
     Project = "ArtAc"
+  }
+}
+
+resource "null_resource" "update_github_secret" {
+  triggers = {
+    instance_ip = aws_instance.app_server.public_ip
+  }
+
+  provisioner "local-exec" {
+    command = "gh secret set EC2_HOST --body '${aws_instance.app_server.public_ip}' --repo ${var.github_repo}"
   }
 }
