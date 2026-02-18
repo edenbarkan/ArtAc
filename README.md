@@ -138,6 +138,8 @@ The S3 backend requires a two-step bootstrap (bucket must exist before Terraform
    terraform apply
    ```
 
+> **Note:** `terraform apply` automatically updates the `EC2_HOST` GitHub Secret with the new EC2 public IP, keeping the CI/CD deploy job in sync.
+
 ## Design Decisions
 
 | Decision | Rationale |
