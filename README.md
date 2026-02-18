@@ -77,7 +77,23 @@ Push to main
 | `EC2_SSH_PRIVATE_KEY` | SSH private key for EC2 access |
 
 ## Docker
-(describe the multi-stage build, how to build/run locally)
+
+Uses a **multi-stage build** for a lightweight image (~230MB):
+
+- **Stage 1 (Builder):** `eclipse-temurin:21-jdk` — compiles the application with Gradle
+- **Stage 2 (Runtime):** `eclipse-temurin:21-jre-alpine` — runs with JRE only
+
+Key features:
+- Non-root user (`appuser`) for security
+- `HEALTHCHECK` using Spring Actuator endpoint
+- JVM container-aware memory settings (`-XX:MaxRAMPercentage=75.0`)
+
+### Build & Run Locally
+```bash
+docker build -t artac-app .
+docker run -d -p 8080:8080 --name artac-app artac-app
+curl localhost:8080/api/health
+```
 
 ## Infrastructure (Terraform)
 (describe what Terraform provisions, how to bootstrap S3 backend)
