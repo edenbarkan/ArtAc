@@ -1,0 +1,11 @@
+.git
+.github
+.gitignore
+.gradle
+build/
+terraform/
+*.md
+.idea
+*.iml
+.vscode
+.DS_Store
