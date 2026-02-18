@@ -49,7 +49,32 @@ GitHub → GitHub Actions → Docker Hub → AWS EC2
 ```
 
 ## CI/CD Pipeline
-(describe the 3 GitHub Actions jobs)
+
+The pipeline runs on **GitHub Actions** and consists of 3 jobs:
+
+```
+Push to main
+    │
+    ▼
+┌──────────────┐     ┌───────────────────┐     ┌──────────────┐
+│ Build & Test  │────▶│ Docker Build/Push  │────▶│ Deploy to EC2│
+└──────────────┘     └───────────────────┘     └──────────────┘
+```
+
+| Job | Trigger | Description |
+|---|---|---|
+| **Build & Test** | Every push & PR | Checks out code, builds with Gradle, runs unit tests, uploads JAR artifact |
+| **Docker Build/Push** | Push to main only | Builds multi-stage Docker image, pushes to Docker Hub with commit SHA + `latest` tags |
+| **Deploy to EC2** | Push to main only | SSHs into EC2, pulls new image, restarts container, verifies health endpoint |
+
+**Required GitHub Secrets:**
+
+| Secret | Description |
+|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub username |
+| `DOCKERHUB_TOKEN` | Docker Hub access token |
+| `EC2_HOST` | EC2 instance public IP |
+| `EC2_SSH_PRIVATE_KEY` | SSH private key for EC2 access |
 
 ## Docker
 (describe the multi-stage build, how to build/run locally)
