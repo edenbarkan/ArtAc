@@ -11,17 +11,25 @@ terraform {
     }
   }
 
-#    backend "s3" {
-#     bucket         = "artac-terraform-state-edenbarkan"
-#     key            = "artac/terraform.tfstate"
-#     region         = "us-east-1"
-#     dynamodb_table = "artac-terraform-locks"
-#     encrypt        = true
-#   }
+  #    backend "s3" {
+  #     bucket         = "artac-terraform-state-edenbarkan"
+  #     key            = "artac/terraform.tfstate"
+  #     region         = "us-east-1"
+  #     dynamodb_table = "artac-terraform-locks"
+  #     encrypt        = true
+  #   }
 }
 
 provider "aws" {
   region = var.aws_region
+}
+
+locals {
+  common_tags = {
+    Project     = "ArtAc"
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
 }
 
 data "aws_ami" "amazon_linux_2023" {
@@ -42,7 +50,7 @@ data "aws_ami" "amazon_linux_2023" {
 resource "aws_instance" "app_server" {
   ami                         = data.aws_ami.amazon_linux_2023.id
   instance_type               = var.instance_type
-  key_name                    = var.key_name
+  iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
   associate_public_ip_address = true
   user_data_replace_on_change = true
@@ -52,10 +60,9 @@ resource "aws_instance" "app_server" {
     app_port     = var.app_port
   })
 
-  tags = {
-    Name    = "artac-app-server"
-    Project = "ArtAc"
-  }
+  tags = merge(local.common_tags, {
+    Name = "artac-app-server"
+  })
 }
 
 resource "null_resource" "update_github_secret" {

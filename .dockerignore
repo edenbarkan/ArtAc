@@ -9,3 +9,5 @@ terraform/
 *.iml
 .vscode
 .DS_Store
+*.tfstate
+*.tfstate.backup

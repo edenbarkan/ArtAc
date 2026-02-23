@@ -4,15 +4,26 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
+variable "environment" {
+  description = "Deployment environment"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Environment must be dev, staging, or prod."
+  }
+}
+
 variable "instance_type" {
   description = "EC2 instance type"
   type        = string
   default     = "t2.micro"
-}
 
-variable "key_name" {
-  description = "SSH key pair name"
-  type        = string
+  validation {
+    condition     = contains(["t2.micro", "t3.micro", "t2.small"], var.instance_type)
+    error_message = "Instance type must be free-tier eligible: t2.micro, t3.micro, or t2.small."
+  }
 }
 
 variable "docker_image" {
@@ -24,6 +35,11 @@ variable "app_port" {
   description = "Application port"
   type        = number
   default     = 8080
+
+  validation {
+    condition     = var.app_port >= 1024 && var.app_port <= 65535
+    error_message = "Application port must be between 1024 and 65535."
+  }
 }
 
 variable "state_bucket_name" {
