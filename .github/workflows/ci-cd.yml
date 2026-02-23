@@ -10,6 +10,7 @@ on:
 env:
   DOCKER_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/artac-app
   IMAGE_TAG: ${{ github.sha }}
+  AWS_REGION: us-east-1
 
 jobs:
   build-and-test:
@@ -50,8 +51,33 @@ jobs:
           path: build/libs/*.jar
           retention-days: 1
 
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.9'
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
   docker-build-push:
-    name: Build & Push Docker Image
+    name: Build, Scan & Push Docker Image
     needs: build-and-test
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -59,13 +85,36 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build Docker image (local)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
+            ${{ env.DOCKER_IMAGE }}:latest
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -73,31 +122,108 @@ jobs:
           tags: |
             ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
             ${{ env.DOCKER_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     name: Deploy to EC2
     needs: docker-build-push
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write
+      contents: read
     steps:
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          script: |
-            docker pull ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
-            docker stop artac-app || true
-            docker rm artac-app || true
-            docker run -d \
-              --name artac-app \
-              -p 8080:8080 \
-              --restart unless-stopped \
-              ${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}
-            docker image prune -f
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Verify deployment
+      - name: Get EC2 instance ID
+        id: ec2
         run: |
-          sleep 30
-          curl --fail --retry 5 --retry-delay 10 http://${{ secrets.EC2_HOST }}:8080/actuator/health
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=artac-app-server" "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+          echo "instance_id=$INSTANCE_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy via SSM with rollback
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ steps.ec2.outputs.instance_id }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters commands='[
+              "set -e",
+              "NEW_IMAGE=${{ env.DOCKER_IMAGE }}:${{ env.IMAGE_TAG }}",
+              "CONTAINER=artac-app",
+              "",
+              "CURRENT_IMAGE=$(docker inspect --format={{.Config.Image}} $CONTAINER 2>/dev/null || echo \"\")",
+              "echo \"Current: $CURRENT_IMAGE\"",
+              "echo \"New: $NEW_IMAGE\"",
+              "",
+              "docker pull $NEW_IMAGE",
+              "docker stop -t 30 $CONTAINER || true",
+              "docker rm $CONTAINER || true",
+              "",
+              "docker run -d --name $CONTAINER -p 8080:8080 --restart unless-stopped --memory=450m --cpus=0.5 --log-driver=json-file --log-opt max-size=10m --log-opt max-file=3 $NEW_IMAGE",
+              "",
+              "echo \"Waiting for health check...\"",
+              "HEALTHY=false",
+              "for i in 1 2 3 4 5; do sleep 10; if curl -sf http://localhost:8080/actuator/health > /dev/null 2>&1; then HEALTHY=true; break; fi; echo \"Attempt $i failed\"; done",
+              "",
+              "if [ \"$HEALTHY\" = false ]; then",
+              "  echo \"ERROR: Health check failed. Rolling back...\"",
+              "  docker stop $CONTAINER || true",
+              "  docker rm $CONTAINER || true",
+              "  if [ -n \"$CURRENT_IMAGE\" ]; then",
+              "    docker run -d --name $CONTAINER -p 8080:8080 --restart unless-stopped --memory=450m --cpus=0.5 $CURRENT_IMAGE",
+              "    echo \"Rolled back to $CURRENT_IMAGE\"",
+              "  fi",
+              "  exit 1",
+              "fi",
+              "",
+              "echo \"Deploy successful: $NEW_IMAGE\"",
+              "docker image prune -f"
+            ]' \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: $COMMAND_ID"
+
+          # Wait for command to complete
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.ec2.outputs.instance_id }}" || true
+
+          # Check result
+          STATUS=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.ec2.outputs.instance_id }}" \
+            --query "Status" \
+            --output text)
+
+          OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ steps.ec2.outputs.instance_id }}" \
+            --query "StandardOutputContent" \
+            --output text)
+
+          echo "$OUTPUT"
+
+          if [ "$STATUS" != "Success" ]; then
+            ERROR=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ steps.ec2.outputs.instance_id }}" \
+              --query "StandardErrorContent" \
+              --output text)
+            echo "STDERR: $ERROR"
+            echo "Deploy failed with status: $STATUS"
+            exit 1
+          fi
+
+      - name: Verify deployment (external)
+        run: |
+          sleep 10
+          curl --fail --retry 3 --retry-delay 5 http://${{ secrets.EC2_HOST }}:8080/actuator/health

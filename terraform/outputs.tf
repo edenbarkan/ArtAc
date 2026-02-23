@@ -12,3 +12,8 @@ output "application_url" {
   description = "URL to access the application"
   value       = "http://${aws_instance.app_server.public_ip}:${var.app_port}"
 }
+
+output "github_actions_role_arn" {
+  description = "IAM role ARN for GitHub Actions OIDC (set as AWS_ROLE_ARN secret)"
+  value       = aws_iam_role.github_actions.arn
+}

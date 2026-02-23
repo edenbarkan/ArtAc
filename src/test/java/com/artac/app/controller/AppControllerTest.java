@@ -26,6 +26,9 @@ class AppControllerTest {
 		mockMvc.perform(get("/api/health"))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("UP"))
-				.andExpect(jsonPath("$.timestamp").isNotEmpty());
+				.andExpect(jsonPath("$.timestamp").isNotEmpty())
+				.andExpect(jsonPath("$.version").exists())
+				.andExpect(jsonPath("$.gitCommit").exists())
+				.andExpect(jsonPath("$.gitBranch").exists());
 	}
 }

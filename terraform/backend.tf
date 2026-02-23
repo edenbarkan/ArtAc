@@ -5,10 +5,9 @@ resource "aws_s3_bucket" "terraform_state" {
     prevent_destroy = false
   }
 
-  tags = {
-    Name    = "artac-terraform-state"
-    Project = "ArtAc"
-  }
+  tags = merge(local.common_tags, {
+    Name = "artac-terraform-state"
+  })
 }
 
 resource "aws_s3_bucket_versioning" "terraform_state" {
@@ -46,8 +45,7 @@ resource "aws_dynamodb_table" "terraform_locks" {
     type = "S"
   }
 
-  tags = {
-    Name    = "artac-terraform-locks"
-    Project = "ArtAc"
-  }
+  tags = merge(local.common_tags, {
+    Name = "artac-terraform-locks"
+  })
 }

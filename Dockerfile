@@ -11,6 +11,10 @@ RUN ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
 
+LABEL org.opencontainers.image.title="ArtAc App" \
+      org.opencontainers.image.description="ArtAc DevOps Demo Application" \
+      org.opencontainers.image.source="https://github.com/edenbarkan/ArtAc"
+
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 
