@@ -7,6 +7,10 @@ echo "=== ArtAc EC2 Bootstrap - $(date) ==="
 # Wait for any existing dnf lock to release
 while fuser /var/run/dnf.lock 2>/dev/null; do sleep 5; done
 
+# Ensure SSM agent is running (for remote management)
+systemctl enable amazon-ssm-agent
+systemctl start amazon-ssm-agent
+
 # Install Docker
 dnf update -y
 dnf install -y docker
