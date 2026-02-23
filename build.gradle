@@ -9,6 +9,10 @@ springBoot {
 	buildInfo()
 }
 
+gitProperties {
+	failOnNoGitDirectory = false
+}
+
 group = 'com.artac'
 version = '0.0.1-SNAPSHOT'
 description = 'Demo project for Spring Boot'
